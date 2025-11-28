@@ -1,0 +1,209 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: IAM groups, users, roles, with MFA enforcement and password policy.
+
+Parameters:
+  MinimumPasswordLength:
+    Type: Number
+    Default: 12
+    Description: Minimum password length.
+  RequireSymbols:
+    Type: String
+    AllowedValues: [true, false]
+    Default: true
+  RequireNumbers:
+    Type: String
+    AllowedValues: [true, false]
+    Default: true
+  RequireUppercase:
+    Type: String
+    AllowedValues: [true, false]
+    Default: true
+  RequireLowercase:
+    Type: String
+    AllowedValues: [true, false]
+    Default: true
+
+Resources:
+
+  #######################################
+  # ACCOUNT PASSWORD POLICY
+  #######################################
+
+  PasswordPolicy:
+    Type: AWS::IAM::AccountPasswordPolicy
+    Properties:
+      MinimumPasswordLength: !Ref MinimumPasswordLength
+      RequireSymbols: !Ref RequireSymbols
+      RequireNumbers: !Ref RequireNumbers
+      RequireUppercaseCharacters: !Ref RequireUppercase
+      RequireLowercaseCharacters: !Ref RequireLowercase
+      AllowUsersToChangePassword: true
+      PasswordReusePrevention: 5
+      MaxPasswordAge: 90
+
+  #######################################
+  # GROUPS
+  #######################################
+
+  AdminGroup:
+    Type: AWS::IAM::Group
+    Properties:
+      GroupName: AdminGroup
+
+  ReadOnlyGroup:
+    Type: AWS::IAM::Group
+    Properties:
+      GroupName: ReadOnlyGroup
+
+  PowerUserGroup:
+    Type: AWS::IAM::Group
+    Properties:
+      GroupName: PowerUserGroup
+
+  #######################################
+  # MFA-ENFORCEMENT POLICY
+  #######################################
+  # Denies all actions if the user is not authenticated with MFA.
+  # This is attached to each group.
+  #######################################
+
+  DenyUnlessMFAPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: DenyUnlessMFA
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Deny
+            Action: "*"
+            Resource: "*"
+            Condition:
+              BoolIfExists:
+                "aws:MultiFactorAuthPresent": false
+
+  #######################################
+  # ADMIN POLICY
+  #######################################
+
+  AdminPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: AdminPolicy
+      Groups:
+        - !Ref AdminGroup
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action: "*"
+            Resource: "*"
+
+  #######################################
+  # READONLY POLICY
+  #######################################
+
+  ReadOnlyPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: ReadOnlyPolicy
+      Groups:
+        - !Ref ReadOnlyGroup
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action:
+              - "iam:Get*"
+              - "iam:List*"
+              - "ec2:Describe*"
+              - "s3:Get*"
+              - "s3:List*"
+              - "cloudwatch:Get*"
+              - "cloudwatch:List*"
+            Resource: "*"
+
+  #######################################
+  # POWERUSER POLICY
+  #######################################
+
+  PowerUserPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: PowerUserPolicy
+      Groups:
+        - !Ref PowerUserGroup
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action: "*"
+            Resource: "*"
+            Condition:
+              StringNotEquals:
+                aws:RequestedRegion: "iam"
+          - Effect: Deny
+            Action: "iam:*"
+            Resource: "*"
+
+  #######################################
+  # ATTACH MFA-DENY POLICY TO GROUPS
+  #######################################
+
+  AttachMFAToAdmin:
+    Type: AWS::IAM::GroupPolicyAttachment
+    Properties:
+      GroupName: !Ref AdminGroup
+      PolicyArn: !Ref DenyUnlessMFAPolicy
+
+  AttachMFAToReadOnly:
+    Type: AWS::IAM::GroupPolicyAttachment
+    Properties:
+      GroupName: !Ref ReadOnlyGroup
+      PolicyArn: !Ref DenyUnlessMFAPolicy
+
+  AttachMFAToPower:
+    Type: AWS::IAM::GroupPolicyAttachment
+    Properties:
+      GroupName: !Ref PowerUserGroup
+      PolicyArn: !Ref DenyUnlessMFAPolicy
+
+  #######################################
+  # EXAMPLE USERS
+  #######################################
+
+  AdminUser:
+    Type: AWS::IAM::User
+    Properties:
+      UserName: cristiano
+      Groups:
+        - !Ref AdminGroup
+      LoginProfile:
+        PasswordResetRequired: true
+
+  ReadOnlyUser:
+    Type: AWS::IAM::User
+    Properties:
+      UserName: readonly-user
+      Groups:
+        - !Ref ReadOnlyGroup
+      LoginProfile:
+        PasswordResetRequired: true
+
+  PowerUser:
+    Type: AWS::IAM::User
+    Properties:
+      UserName: power-user
+      Groups:
+        - !Ref PowerUserGroup
+      LoginProfile:
+        PasswordResetRequired: true
+
+Outputs:
+  AdminGroupName:
+    Value: !Ref AdminGroup
+  ReadOnlyGroupName:
+    Value: !Ref ReadOnlyGroup
+  PowerUserGroupName:
+    Value: !Ref PowerUserGroup
+  MFAEnforcementPolicyArn:
+    Value: !Ref DenyUnlessMFAPolicy
